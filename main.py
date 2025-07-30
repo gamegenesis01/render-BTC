@@ -49,7 +49,6 @@ def run_bot():
     df = yf.download("BTC-USD", interval="15m", period="7d")
     df.dropna(inplace=True)
 
-    # Calculate RSI manually
     delta = df['Close'].diff()
     gain = delta.where(delta > 0, 0)
     loss = -delta.where(delta < 0, 0)
@@ -58,17 +57,14 @@ def run_bot():
     rs = avg_gain / avg_loss
     df['RSI'] = 100 - (100 / (1 + rs))
 
-    # Determine signal pattern
     df['Pattern'] = np.where(df['RSI'] < 30, 'Oversold',
                      np.where(df['RSI'] > 70, 'Overbought', None))
 
-    # Extract latest row
     latest = df.iloc[-1]
     pattern = latest['Pattern']
     price = latest['Close'].item() if hasattr(latest['Close'], 'item') else float(latest['Close'])
     rsi_value = latest['RSI'].item() if hasattr(latest['RSI'], 'item') else float(latest['RSI'])
 
-    # Send alert
     if pattern == 'Oversold':
         send_rsi_alert("BUY", price, rsi_value)
     elif pattern == 'Overbought':
