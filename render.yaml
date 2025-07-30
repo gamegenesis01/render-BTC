@@ -1,0 +1,14 @@
+services:
+  - type: cron
+    name: btc-rsi-email-bot
+    env: python
+    schedule: "0 * * * *"
+    buildCommand: ""
+    startCommand: "python main.py"
+    envVars:
+      - key: EMAIL_ADDRESS
+        sync: false
+      - key: APP_PASSWORD
+        sync: false
+      - key: RECIPIENT_EMAIL
+        sync: false
