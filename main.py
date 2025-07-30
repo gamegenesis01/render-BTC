@@ -64,7 +64,7 @@ def run_bot():
 
     # Extract latest row
     latest = df.iloc[-1]
-    pattern = latest['Pattern'] if pd.notna(latest['Pattern']) else None
+    pattern = latest['Pattern']
     price = latest['Close'].item() if hasattr(latest['Close'], 'item') else float(latest['Close'])
     rsi_value = latest['RSI'].item() if hasattr(latest['RSI'], 'item') else float(latest['RSI'])
 
@@ -75,6 +75,7 @@ def run_bot():
         send_rsi_alert("SELL", price, rsi_value)
     else:
         send_rsi_alert("NO SIGNAL", price, rsi_value)
+
 
 # === Run Bot ===
 run_bot()
