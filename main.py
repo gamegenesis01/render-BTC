@@ -63,7 +63,7 @@ def run_bot():
     df['Pattern'] = np.where(df['RSI'] < 30, 'Oversold',
                      np.where(df['RSI'] > 70, 'Overbought', None))
 
-    latest = df.iloc[[-1]]  # Single-row DataFrame to extract values safely
+    latest = df.iloc[[-1]]
     pattern = latest['Pattern'].values[0] if pd.notna(latest['Pattern'].values[0]) else None
     price = latest['Close'].values[0]
     rsi_value = latest['RSI'].values[0]
