@@ -8,9 +8,8 @@ from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 
 # ========== BTC RSI EMAIL ALERT BOT ==========
-# This bot runs every hour via Render.com cron job.
-# It fetches the latest BTC data, calculates RSI,
-# and sends an email alert if overbought, oversold, or stable.
+# This bot runs via Render.com cron job every 15 minutes
+# It analyzes BTC's RSI and sends an email if conditions match
 
 # === Environment Variables ===
 your_email = os.getenv("EMAIL_ADDRESS")
@@ -63,17 +62,19 @@ def run_bot():
     df['Pattern'] = np.where(df['RSI'] < 30, 'Oversold',
                      np.where(df['RSI'] > 70, 'Overbought', None))
 
-  latest = df.iloc[[-1]]
-pattern = latest['Pattern'].values[0] if pd.notna(latest['Pattern'].values[0]) else None
-price = latest['Close'].item()
-rsi_value = latest['RSI'].item()
+    # Extract the latest row safely
+    latest = df.iloc[-1]
+    pattern = latest['Pattern'] if pd.notna(latest['Pattern']) else None
+    price = latest['Close'].item() if hasattr(latest['Close'], 'item') else float(latest['Close'])
+    rsi_value = latest['RSI'].item() if hasattr(latest['RSI'], 'item') else float(latest['RSI'])
 
-if pattern == 'Oversold':
-    send_rsi_alert("BUY", price, rsi_value)
-elif pattern == 'Overbought':
-    send_rsi_alert("SELL", price, rsi_value)
-else:
-    send_rsi_alert("NO SIGNAL", price, rsi_value)
+    # Send email based on pattern
+    if pattern == 'Oversold':
+        send_rsi_alert("BUY", price, rsi_value)
+    elif pattern == 'Overbought':
+        send_rsi_alert("SELL", price, rsi_value)
+    else:
+        send_rsi_alert("NO SIGNAL", price, rsi_value)
 
-# === Run the Bot ===
+# === Run Bot ===
 run_bot()
