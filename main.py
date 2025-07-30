@@ -63,10 +63,10 @@ def run_bot():
     df['Pattern'] = np.where(df['RSI'] < 30, 'Oversold',
                      np.where(df['RSI'] > 70, 'Overbought', None))
 
-    latest = df.iloc[[-1]]
+  latest = df.iloc[[-1]]
 pattern = latest['Pattern'].values[0] if pd.notna(latest['Pattern'].values[0]) else None
-price = float(latest['Close'].values[0])
-rsi_value = float(latest['RSI'].values[0])
+price = latest['Close'].item()
+rsi_value = latest['RSI'].item()
 
 if pattern == 'Oversold':
     send_rsi_alert("BUY", price, rsi_value)
