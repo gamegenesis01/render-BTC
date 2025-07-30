@@ -62,13 +62,13 @@ def run_bot():
     df['Pattern'] = np.where(df['RSI'] < 30, 'Oversold',
                      np.where(df['RSI'] > 70, 'Overbought', None))
 
-    # Extract the latest row safely
+    # Extract latest row
     latest = df.iloc[-1]
     pattern = latest['Pattern'] if pd.notna(latest['Pattern']) else None
     price = latest['Close'].item() if hasattr(latest['Close'], 'item') else float(latest['Close'])
     rsi_value = latest['RSI'].item() if hasattr(latest['RSI'], 'item') else float(latest['RSI'])
 
-    # Send email based on pattern
+    # Send alert
     if pattern == 'Oversold':
         send_rsi_alert("BUY", price, rsi_value)
     elif pattern == 'Overbought':
