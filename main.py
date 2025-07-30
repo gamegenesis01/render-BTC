@@ -64,16 +64,16 @@ def run_bot():
                      np.where(df['RSI'] > 70, 'Overbought', None))
 
     latest = df.iloc[[-1]]
-    pattern = latest['Pattern'].values[0] if pd.notna(latest['Pattern'].values[0]) else None
-    price = latest['Close'].values[0]
-    rsi_value = latest['RSI'].values[0]
+pattern = latest['Pattern'].values[0] if pd.notna(latest['Pattern'].values[0]) else None
+price = float(latest['Close'].values[0])
+rsi_value = float(latest['RSI'].values[0])
 
-    if pattern == 'Oversold':
-        send_rsi_alert("BUY", price, rsi_value)
-    elif pattern == 'Overbought':
-        send_rsi_alert("SELL", price, rsi_value)
-    else:
-        send_rsi_alert("NO SIGNAL", price, rsi_value)
+if pattern == 'Oversold':
+    send_rsi_alert("BUY", price, rsi_value)
+elif pattern == 'Overbought':
+    send_rsi_alert("SELL", price, rsi_value)
+else:
+    send_rsi_alert("NO SIGNAL", price, rsi_value)
 
 # === Run the Bot ===
 run_bot()
