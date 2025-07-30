@@ -45,6 +45,7 @@ def run_bot():
     df = yf.download("BTC-USD", interval="15m", period="7d")
     df.dropna(inplace=True)
 
+    # Calculate RSI manually
     delta = df['Close'].diff()
     gain = delta.where(delta > 0, 0)
     loss = -delta.where(delta < 0, 0)
@@ -68,4 +69,5 @@ def run_bot():
     else:
         send_rsi_alert("NO SIGNAL", price, rsi_value)
 
+# Trigger the bot
 run_bot()
