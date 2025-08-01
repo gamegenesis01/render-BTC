@@ -7,16 +7,17 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 
-# ========== BTC RSI EMAIL ALERT BOT ==========
+# ========== BTC RSI EMAIL ALERT BOT ========== #
 # Deployed via Render Cron Job
 # Sends RSI-based trading alerts to your email every 15 minutes
+# Now includes dynamic price targets using recent price swings
 
 # === Environment Variables ===
 your_email = os.getenv("EMAIL_ADDRESS")
 your_app_password = os.getenv("APP_PASSWORD")
 recipient = os.getenv("RECIPIENT_EMAIL")
 
-def send_rsi_alert(signal_type, price, rsi_value):
+def send_rsi_alert(signal_type, price, rsi_value, target_price=None):
     subject = f"📈 BTC RSI Alert: {signal_type.upper()}"
     header = "📌 BTC ALERT SYSTEM – PATTERN DETECTED"
     body = f"""
@@ -27,6 +28,11 @@ def send_rsi_alert(signal_type, price, rsi_value):
 📊 RSI Value: {rsi_value:.2f}
 🕒 Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 """
+
+    if signal_type.upper() == "BUY" and target_price:
+        body += f"🎯 Target Sell Price: ${target_price:,.2f} (based on recent swing high)\n"
+    elif signal_type.upper() == "SELL" and target_price:
+        body += f"🎯 Target Buy Price: ${target_price:,.2f} (based on recent swing low)\n"
 
     msg = MIMEMultipart()
     msg['From'] = your_email
@@ -68,11 +74,15 @@ def run_bot():
     price = latest['Close'].item() if hasattr(latest['Close'], 'item') else float(latest['Close'])
     rsi_value = latest['RSI'].item() if hasattr(latest['RSI'], 'item') else float(latest['RSI'])
 
+    # Calculate recent swing targets
+    recent_high = df['High'].rolling(window=24).max().iloc[-1]
+    recent_low = df['Low'].rolling(window=24).min().iloc[-1]
+
     # Send alert
     if pattern == 'Oversold':
-        send_rsi_alert("BUY", price, rsi_value)
+        send_rsi_alert("BUY", price, rsi_value, target_price=recent_high)
     elif pattern == 'Overbought':
-        send_rsi_alert("SELL", price, rsi_value)
+        send_rsi_alert("SELL", price, rsi_value, target_price=recent_low)
     else:
         send_rsi_alert("NO SIGNAL", price, rsi_value)
 
