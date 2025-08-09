@@ -21,7 +21,7 @@ RSI_LEN_5 = 14
 EMA_FAST_5 = 9
 EMA_SLOW_5 = 21
 ATR_LEN_5 = 14
-SWING_LOOKBACK_5 = 48           # 4 hours of 5m bars
+SWING_LOOKBACK_5 = 48           # ~4 hours of 5m bars
 ATR_TP_MULT = 1.5               # target = 1.5x ATR
 ATR_SL_MULT = 1.0               # stop   = 1.0x ATR
 VWAP_TOL = 0.2                  # allow entries +/- 0.2*ATR around VWAP
@@ -35,7 +35,7 @@ EMA_SLOW_1H = 50
 def utc_now():
     return datetime.now(timezone.utc)
 
-def fmt_ts(ts: datetime):
+def ts_str(ts: datetime):
     return ts.strftime("%Y-%m-%d %H:%M:%S %Z")
 
 def send_email(subject, body):
@@ -59,16 +59,16 @@ def fetch(interval: str, period: str):
     df.dropna(inplace=True)
     return df
 
-def compute_rsi(series: pd.Series, length: int):
-    delta = series.diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
+def compute_rsi(close: pd.Series, length: int) -> pd.Series:
+    delta = close.diff()
+    gain = delta.clip(lower=0.0)
+    loss = -delta.clip(upper=0.0)
     avg_gain = gain.rolling(length).mean()
     avg_loss = loss.rolling(length).mean()
     rs = avg_gain / avg_loss.replace(0, np.nan)
     return 100 - (100 / (1 + rs))
 
-def compute_atr(df: pd.DataFrame, length: int):
+def compute_atr(df: pd.DataFrame, length: int) -> pd.Series:
     high, low, close = df["High"], df["Low"], df["Close"]
     prev_close = close.shift(1)
     tr = pd.concat(
@@ -79,13 +79,11 @@ def compute_atr(df: pd.DataFrame, length: int):
     ).max(axis=1)
     return tr.ewm(span=length, adjust=False).mean()
 
-def add_vwap(df: pd.DataFrame):
+def add_vwap(df: pd.DataFrame) -> pd.DataFrame:
     # Intraday VWAP resets daily (UTC)
     idx = df.index
-    if getattr(idx, "tz", None) is None:
-        utc_dates = pd.to_datetime(idx).tz_localize("UTC").date
-    else:
-        utc_dates = idx.tz_convert("UTC").date
+    utc_dates = (pd.to_datetime(idx, utc=True).date
+                 if getattr(idx, "tz", None) is None else idx.tz_convert("UTC").date)
     utc_dates = pd.Series(utc_dates, index=df.index)
 
     tp = (df["High"] + df["Low"] + df["Close"]) / 3.0
@@ -94,7 +92,7 @@ def add_vwap(df: pd.DataFrame):
     df["VWAP"] = cum_pv / cum_v
     return df
 
-def compute_indicators_5m(df5: pd.DataFrame) -> pd.DataFrame:
+def indicators_5m(df5: pd.DataFrame) -> pd.DataFrame:
     df5["RSI"] = compute_rsi(df5["Close"], RSI_LEN_5)
     df5["EMA9"]  = df5["Close"].ewm(span=EMA_FAST_5, adjust=False).mean()
     df5["EMA21"] = df5["Close"].ewm(span=EMA_SLOW_5, adjust=False).mean()
@@ -104,19 +102,21 @@ def compute_indicators_5m(df5: pd.DataFrame) -> pd.DataFrame:
     df5["SwingLow"]  = df5["Low"].rolling(SWING_LOOKBACK_5).min()
     return df5
 
-def compute_indicators_1h(df1h: pd.DataFrame) -> pd.DataFrame:
+def indicators_1h(df1h: pd.DataFrame) -> pd.DataFrame:
     df1h["RSI"] = compute_rsi(df1h["Close"], RSI_LEN_1H)
     df1h["EMA_FAST"] = df1h["Close"].ewm(span=EMA_FAST_1H, adjust=False).mean()
     df1h["EMA_SLOW"] = df1h["Close"].ewm(span=EMA_SLOW_1H, adjust=False).mean()
     return df1h
 
 # ===================== SIGNALS =====================
-def signal_from_5m(df5: pd.DataFrame, df1h: pd.DataFrame):
-    # Latest bars
+def make_signal(df5: pd.DataFrame, df1h: pd.DataFrame):
+    """Return tuple with all values needed for alert & logging."""
+    # Use iloc[-1] to get a Series (scalars), avoids future warnings
     r5  = df5.iloc[-1]
     r5p = df5.iloc[-2] if len(df5) > 1 else r5
     r1h = df1h.iloc[-1]
 
+    # Scalars only
     price = float(r5["Close"])
     rsi5  = float(r5["RSI"])
     ema9  = float(r5["EMA9"])
@@ -126,43 +126,46 @@ def signal_from_5m(df5: pd.DataFrame, df1h: pd.DataFrame):
     swing_high = float(r5["SwingHigh"])
     swing_low  = float(r5["SwingLow"])
 
-    # 1h context
     ema_fast_1h = float(r1h["EMA_FAST"])
     ema_slow_1h = float(r1h["EMA_SLOW"])
     rsi1h = float(r1h["RSI"])
+
+    # Context flags
     hourly_bull = ema_fast_1h > ema_slow_1h
     hourly_bear = ema_fast_1h < ema_slow_1h
 
-    # 5m momentum & confirmation
     bullish_5 = ema9 > ema21
     bearish_5 = ema9 < ema21
-    tick_up   = price > float(r5p["Close"])
-    tick_down = price < float(r5p["Close"])
+
+    prev_close = float(r5p["Close"])
+    tick_up   = price > prev_close
+    tick_down = price < prev_close
 
     # VWAP proximity
     vwap_ok_buy  = (price >= vwap - VWAP_TOL * atr)
     vwap_ok_sell = (price <= vwap + VWAP_TOL * atr)
 
-    # BUY: Align with 1h bullish, 5m confluence, RSI<30, confirmation tick-up
-    if (rsi5 < 30) and (hourly_bull or (rsi1h > 50)) and (bullish_5 or ema9 >= ema21) and vwap_ok_buy and tick_up:
+    # BUY: RSI<30 + (1h uptrend or 1h RSI>50) + 5m momentum/tick-up + VWAP band
+    if (rsi5 < 30) and (hourly_bull or rsi1h > 50) and (bullish_5 or ema9 >= ema21) and vwap_ok_buy and tick_up:
         target = max(swing_high, price + ATR_TP_MULT * atr)
         stop   = price - ATR_SL_MULT * atr
         reason = "RSI5<30 + 1h uptrend + tick-up + near VWAP"
-        return "BUY", reason, price, target, stop, rsi5, ema9, ema21, vwap, atr, hourly_bull, hourly_bear, rsi1h
+        return ("BUY", reason, price, target, stop, rsi5, ema9, ema21, vwap, atr, hourly_bull, hourly_bear, rsi1h)
 
-    # SELL: Align with 1h bearish, 5m confluence, RSI>70, confirmation tick-down
-    if (rsi5 > 70) and (hourly_bear or (rsi1h < 50)) and (bearish_5 or ema9 <= ema21) and vwap_ok_sell and tick_down:
+    # SELL: RSI>70 + (1h downtrend or 1h RSI<50) + 5m momentum/tick-down + VWAP band
+    if (rsi5 > 70) and (hourly_bear or rsi1h < 50) and (bearish_5 or ema9 <= ema21) and vwap_ok_sell and tick_down:
         target = min(swing_low, price - ATR_TP_MULT * atr)
         stop   = price + ATR_SL_MULT * atr
         reason = "RSI5>70 + 1h downtrend + tick-down + near VWAP"
-        return "SELL", reason, price, target, stop, rsi5, ema9, ema21, vwap, atr, hourly_bull, hourly_bear, rsi1h
+        return ("SELL", reason, price, target, stop, rsi5, ema9, ema21, vwap, atr, hourly_bull, hourly_bear, rsi1h)
 
     # No trade
     reason = f"No confluence. 1h trend={'Bull' if hourly_bull else 'Bear' if hourly_bear else 'Flat'}, RSI5={rsi5:.2f}"
-    return "NO SIGNAL", reason, price, None, None, rsi5, ema9, ema21, vwap, atr, hourly_bull, hourly_bear, rsi1h
+    return ("NO SIGNAL", reason, price, None, None, rsi5, ema9, ema21, vwap, atr, hourly_bull, hourly_bear, rsi1h)
 
 # ===================== LOGGING & DIGEST =====================
-def append_signal_log(ts_utc: datetime, signal, price, target, stop, rsi5, ema9, ema21, vwap, atr, hourly_bull, hourly_bear, rsi1h, reason):
+def append_signal_log(ts_utc: datetime, signal: str, price: float, target, stop,
+                      rsi5, ema9, ema21, vwap, atr5, hourly_bull, hourly_bear, rsi1h, reason: str):
     row = {
         "time_utc": ts_utc.isoformat(),
         "signal": signal,
@@ -173,7 +176,7 @@ def append_signal_log(ts_utc: datetime, signal, price, target, stop, rsi5, ema9,
         "ema9": ema9,
         "ema21": ema21,
         "vwap": vwap,
-        "atr5": atr,
+        "atr5": atr5,
         "hourly_trend": "bull" if hourly_bull else "bear" if hourly_bear else "flat",
         "rsi1h": rsi1h,
         "reason": reason
@@ -185,66 +188,56 @@ def append_signal_log(ts_utc: datetime, signal, price, target, stop, rsi5, ema9,
         df = pd.DataFrame([row])
     df.to_csv(LOG_PATH, index=False)
 
-def send_hourly_digest(now_utc: datetime):
-    # Only send at top of hour
-    if now_utc.minute != 0:
-        return
+def hourly_digest(now_utc: datetime) -> str | None:
     if not LOG_PATH.exists():
-        return
-
+        return None
     df = pd.read_csv(LOG_PATH)
     if df.empty:
-        return
+        return None
     df["time_utc"] = pd.to_datetime(df["time_utc"], utc=True)
-    one_hour_ago = now_utc - timedelta(hours=1)
-    recent = df[df["time_utc"] >= one_hour_ago]
-
+    window_start = now_utc - timedelta(hours=1)
+    recent = df[df["time_utc"] >= window_start]
     trades = recent[recent["signal"].isin(["BUY", "SELL"])]
     if trades.empty:
-        # Still send a heartbeat/update if you want; otherwise skip
-        body = f"""📣 BTC Hourly Update
+        return f"""📣 BTC Hourly Update
 
 No BUY/SELL alerts in the last hour.
 
-🕒 Window: {fmt_ts(one_hour_ago)} → {fmt_ts(now_utc)}
+🕒 Window: {ts_str(window_start)} → {ts_str(now_utc)}
 """
-        send_email("BTC Hourly Update: No trades", body)
-        return
-
-    # Build summary
     lines = []
     for _, r in trades.iterrows():
-        t = r["time_utc"]
+        t = pd.to_datetime(r["time_utc"]).strftime("%H:%M:%S")
         lines.append(
-            f"- {pd.to_datetime(t).strftime('%H:%M:%S')} UTC | {r['signal']} @ ${float(r['price']):,.2f} → "
-            f"Target ${float(r['target']):,.2f} | Stop ${float(r['stop']):,.2f} | 1h {r['hourly_trend']} | RSI5 {float(r['rsi5']):.1f}"
+            f"- {t} UTC | {r['signal']} @ ${float(r['price']):,.2f} → "
+            f"Target ${float(r['target']):,.2f} | Stop ${float(r['stop']):,.2f} | "
+            f"1h {r['hourly_trend']} | RSI5 {float(r['rsi5']):.1f}"
         )
-    body = f"""📣 BTC Hourly Update
+    return f"""📣 BTC Hourly Update
 
 Total signals: {len(trades)}
 
 """ + "\n".join(lines) + f"""
 
-🕒 Window: {fmt_ts(one_hour_ago)} → {fmt_ts(now_utc)}
+🕒 Window: {ts_str(window_start)} → {ts_str(now_utc)}
 """
-    send_email("BTC Hourly Update: Summary of last hour", body)
 
 # ===================== MAIN =====================
 def run():
     now = utc_now()
-    print(f"🔄 Scan @ {fmt_ts(now)}")
+    print(f"🔄 Scan @ {ts_str(now)}")
 
     # Fetch data
-    df5  = fetch("5m",  "60d")   # yfinance supports up to 60d for 5m bars
-    df1h = fetch("60m", "730d")  # long history for smoother context
+    df5  = fetch("5m",  "60d")   # up to 60d of 5m bars
+    df1h = fetch("60m", "730d")  # long history for context
 
     # Indicators
-    df5  = compute_indicators_5m(df5)
-    df1h = compute_indicators_1h(df1h)
+    df5  = indicators_5m(df5)
+    df1h = indicators_1h(df1h)
 
     # Signal
     (signal, reason, price, target, stop,
-     rsi5, ema9, ema21, vwap, atr5, hourly_bull, hourly_bear, rsi1h) = signal_from_5m(df5, df1h)
+     rsi5, ema9, ema21, vwap, atr5, hourly_bull, hourly_bear, rsi1h) = make_signal(df5, df1h)
 
     trend = "📈 Bullish" if hourly_bull else "📉 Bearish" if hourly_bear else "➖ Flat"
 
@@ -255,7 +248,7 @@ def run():
 📈 BTC Day-Trade Alert: {signal}
 
 ===============================
-📌 Signal time: {fmt_ts(now)}
+📌 Signal time: {ts_str(now)}
 📌 Timeframe: 5m (with 1h context)
 ===============================
 
@@ -275,11 +268,13 @@ def run():
         send_email(subject, body)
         append_signal_log(now, signal, price, target, stop, rsi5, ema9, ema21, vwap, atr5, hourly_bull, hourly_bear, rsi1h, reason)
     else:
-        # Optional: still log “no signal” lines if you want full trace
-        pass
+        print("No signal.")
 
     # Hourly digest at :00
-    send_hourly_digest(now)
+    if now.minute == 0:
+        body = hourly_digest(now)
+        if body:
+            send_email("BTC Hourly Update", body)
 
 if __name__ == "__main__":
     run()
