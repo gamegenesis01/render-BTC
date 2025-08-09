@@ -32,13 +32,13 @@ EMA_FAST_1H = 20
 EMA_SLOW_1H = 50
 
 # ===================== UTIL =====================
-def utc_now():
+def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
-def ts_str(ts: datetime):
+def ts_str(ts: datetime) -> str:
     return ts.strftime("%Y-%m-%d %H:%M:%S %Z")
 
-def send_email(subject, body):
+def send_email(subject: str, body: str):
     msg = MIMEMultipart()
     msg["From"] = EMAIL
     msg["To"] = RECIPIENT
@@ -54,8 +54,9 @@ def send_email(subject, body):
     except Exception as e:
         print(f"❌ Email failed: {e}")
 
-def fetch(interval: str, period: str):
-    df = yf.download(SYMBOL, interval=interval, period=period)
+def fetch(interval: str, period: str) -> pd.DataFrame:
+    # Quiet the auto_adjust warning explicitly
+    df = yf.download(SYMBOL, interval=interval, period=period, auto_adjust=False)
     df.dropna(inplace=True)
     return df
 
@@ -110,26 +111,28 @@ def indicators_1h(df1h: pd.DataFrame) -> pd.DataFrame:
 
 # ===================== SIGNALS =====================
 def make_signal(df5: pd.DataFrame, df1h: pd.DataFrame):
-    """Return tuple with all values needed for alert & logging."""
-    # Use iloc[-1] to get a Series (scalars), avoids future warnings
-    r5  = df5.iloc[-1]
-    r5p = df5.iloc[-2] if len(df5) > 1 else r5
-    r1h = df1h.iloc[-1]
+    """
+    Return:
+      (signal, reason, price, target, stop,
+       rsi5, ema9, ema21, vwap, atr, hourly_bull, hourly_bear, rsi1h)
+    """
+    # indices for latest/previous 5m bars
+    i  = -1
+    ip = -2 if len(df5) > 1 else -1
 
-   # === Scalars (always use column .iloc[...] to avoid 1-element Series) ===
-price      = float(df5['Close'].iloc[-1])
-rsi5       = float(df5['RSI'].iloc[-1])
-ema9       = float(df5['EMA9'].iloc[-1])
-ema21      = float(df5['EMA21'].iloc[-1])
-vwap       = float(df5['VWAP'].iloc[-1])
-atr        = float(df5['ATR'].iloc[-1])
-swing_high = float(df5['SwingHigh'].iloc[-1])
-swing_low  = float(df5['SwingLow'].iloc[-1])
+    # === Scalars from columns (no 1-element Series) ===
+    price      = float(df5['Close'].iloc[i])
+    rsi5       = float(df5['RSI'].iloc[i])
+    ema9       = float(df5['EMA9'].iloc[i])
+    ema21      = float(df5['EMA21'].iloc[i])
+    vwap       = float(df5['VWAP'].iloc[i])
+    atr        = float(df5['ATR'].iloc[i])
+    swing_high = float(df5['SwingHigh'].iloc[i])
+    swing_low  = float(df5['SwingLow'].iloc[i])
 
-ema_fast_1h = float(df1h['EMA_FAST'].iloc[-1])
-ema_slow_1h = float(df1h['EMA_SLOW'].iloc[-1])
-rsi1h       = float(df1h['RSI'].iloc[-1])
-
+    ema_fast_1h = float(df1h['EMA_FAST'].iloc[i])
+    ema_slow_1h = float(df1h['EMA_SLOW'].iloc[i])
+    rsi1h       = float(df1h['RSI'].iloc[i])
 
     # Context flags
     hourly_bull = ema_fast_1h > ema_slow_1h
@@ -138,10 +141,9 @@ rsi1h       = float(df1h['RSI'].iloc[-1])
     bullish_5 = ema9 > ema21
     bearish_5 = ema9 < ema21
 
-# === Prev close for confirmation ===
-prev_close = float(df5['Close'].iloc[-2])
-tick_up    = price > prev_close
-tick_down  = price < prev_close
+    prev_close = float(df5['Close'].iloc[ip])
+    tick_up    = price > prev_close
+    tick_down  = price < prev_close
 
     # VWAP proximity
     vwap_ok_buy  = (price >= vwap - VWAP_TOL * atr)
