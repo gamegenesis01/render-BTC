@@ -134,7 +134,7 @@ def make_signal(df5: pd.DataFrame, df1h: pd.DataFrame):
     ema_slow_1h = float(df1h['EMA_SLOW'].iloc[i])
     rsi1h       = float(df1h['RSI'].iloc[i])
 
-    # Context flags
+      # Context flags
     hourly_bull = ema_fast_1h > ema_slow_1h
     hourly_bear = ema_fast_1h < ema_slow_1h
 
