@@ -1,47 +1,28 @@
-# 🚀 Render-BTC – RSI-Based Bitcoin Email Alert Bot
+# 📈 BTC Multi-Timeframe RSI & EMA Trading Bot
 
-This bot analyzes Bitcoin (BTC-USD) price data using the Relative Strength Index (RSI) to detect trading signals (BUY, SELL, or NO SIGNAL). It runs hourly and sends email alerts based on RSI patterns using Gmail SMTP.
-
----
-
-## 📈 How It Works
-
-- 📊 Fetches real-time BTC-USD data (15-minute intervals)
-- 🧠 Calculates RSI manually (14-period)
-- 📌 Classifies the latest RSI value as:
-  - **BUY** → RSI < 30
-  - **SELL** → RSI > 70
-  - **NO SIGNAL** → RSI between 30 and 70
-- 📧 Sends an email alert with the result
+A Python-based Bitcoin trading alert system that:
+- Scans **5-minute candles** for immediate buy/sell opportunities.
+- Sends **hourly summaries** with all trades made in the past hour.
+- Uses **RSI** (Relative Strength Index) and **EMA crossovers** for signal generation.
+- Sends alerts **via email** in real-time.
 
 ---
 
-## 🔁 Deployment via Render.com (Cron Job)
+## 🚀 Features
 
-This project uses [Render Cron Jobs](https://render.com/docs/cron-jobs) to run `main.py` once every hour.
-
-### ✅ Files Required
-
-- `main.py` – Core bot logic
-- `requirements.txt` – Python dependencies
-- `render.yaml` – Render deployment config (cron setup)
-
----
-
-## ⚙️ Environment Variables (set on Render)
-
-| Key              | Description                            |
-|------------------|----------------------------------------|
-| `EMAIL_ADDRESS`  | Gmail address used to send emails      |
-| `APP_PASSWORD`   | Gmail **App Password** (not regular PW)|
-| `RECIPIENT_EMAIL`| Email address to receive alerts        |
-
-> ⚠️ You must enable 2FA and create an App Password at: [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
+- **Multi-timeframe analysis** – Uses 5-minute and 1-hour intervals.
+- **Immediate alerts** – Buy/sell alerts sent within seconds of signal detection.
+- **Hourly summary** – Comprehensive update including recent trades, market trend, and price range.
+- **RSI + EMA logic** – Combines momentum and moving average crossovers for stronger confirmation.
+- **Dynamic target prices** – Calculates sell/buy targets using recent swing highs/lows.
+- **Email notifications** – Sends formatted trading alerts directly to your inbox.
 
 ---
 
-## ⏱ Cron Schedule
+## 📦 Installation
 
-Configured in `render.yaml`:
-```yaml
-schedule: "0 * * * *"  # Runs every hour
+Clone the repository:
+
+```bash
+git clone https://github.com/<your-username>/<your-repo>.git
+cd <your-repo>
