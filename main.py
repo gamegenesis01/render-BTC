@@ -54,11 +54,33 @@ def send_email(subject: str, body: str):
     except Exception as e:
         print(f"❌ Email failed: {e}")
 
-def fetch(interval: str, period: str) -> pd.DataFrame:
-    # Quiet the auto_adjust warning explicitly
-    df = yf.download(SYMBOL, interval=interval, period=period, auto_adjust=False)
-    df.dropna(inplace=True)
+def _flatten_columns(df: pd.DataFrame) -> pd.DataFrame:
+    # yfinance sometimes returns MultiIndex cols; flatten to simple strings
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = ["_".join([str(x) for x in tup if str(x) != ""]) for tup in df.columns]
     return df
+
+def fetch(interval: str, period: str) -> pd.DataFrame:
+    # Explicit auto_adjust to quiet warning
+    df = yf.download(SYMBOL, interval=interval, period=period, auto_adjust=False)
+    df = _flatten_columns(df)
+    df.dropna(how="any", inplace=True)
+    return df
+
+def scalar_at(df: pd.DataFrame, col: str, idx: int = -1) -> float:
+    """
+    Return a true scalar float for df[col].iloc[idx] regardless of Series/DataFrame/MultiIndex quirks.
+    """
+    s = df[col] if col in df.columns else df.get(col)
+    if s is None:
+        raise KeyError(f"Column '{col}' not found in DataFrame.")
+    if isinstance(s, pd.DataFrame):
+        s = s.iloc[:, 0]
+    v = s.iloc[idx]
+    try:
+        return float(getattr(v, "item", lambda: v)())
+    except Exception:
+        return float(v)
 
 def compute_rsi(close: pd.Series, length: int) -> pd.Series:
     delta = close.diff()
@@ -121,27 +143,27 @@ def make_signal(df5: pd.DataFrame, df1h: pd.DataFrame):
     ip = -2 if len(df5) > 1 else -1
 
     # === Scalars from columns (no 1-element Series) ===
-    price      = float(df5['Close'].iloc[i])
-    rsi5       = float(df5['RSI'].iloc[i])
-    ema9       = float(df5['EMA9'].iloc[i])
-    ema21      = float(df5['EMA21'].iloc[i])
-    vwap       = float(df5['VWAP'].iloc[i])
-    atr        = float(df5['ATR'].iloc[i])
-    swing_high = float(df5['SwingHigh'].iloc[i])
-    swing_low  = float(df5['SwingLow'].iloc[i])
+    price      = scalar_at(df5, 'Close',      i)
+    rsi5       = scalar_at(df5, 'RSI',        i)
+    ema9       = scalar_at(df5, 'EMA9',       i)
+    ema21      = scalar_at(df5, 'EMA21',      i)
+    vwap       = scalar_at(df5, 'VWAP',       i)
+    atr        = scalar_at(df5, 'ATR',        i)
+    swing_high = scalar_at(df5, 'SwingHigh',  i)
+    swing_low  = scalar_at(df5, 'SwingLow',   i)
 
-    ema_fast_1h = float(df1h['EMA_FAST'].iloc[i])
-    ema_slow_1h = float(df1h['EMA_SLOW'].iloc[i])
-    rsi1h       = float(df1h['RSI'].iloc[i])
+    ema_fast_1h = scalar_at(df1h, 'EMA_FAST', i)
+    ema_slow_1h = scalar_at(df1h, 'EMA_SLOW', i)
+    rsi1h       = scalar_at(df1h, 'RSI',      i)
 
-      # Context flags
+    # Context flags
     hourly_bull = ema_fast_1h > ema_slow_1h
     hourly_bear = ema_fast_1h < ema_slow_1h
 
     bullish_5 = ema9 > ema21
     bearish_5 = ema9 < ema21
 
-    prev_close = float(df5['Close'].iloc[ip])
+    prev_close = scalar_at(df5, 'Close', ip)
     tick_up    = price > prev_close
     tick_down  = price < prev_close
 
