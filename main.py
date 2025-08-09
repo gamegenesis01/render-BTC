@@ -142,7 +142,7 @@ def make_signal(df5: pd.DataFrame, df1h: pd.DataFrame):
     i  = -1
     ip = -2 if len(df5) > 1 else -1
 
-    # === Scalars from columns (no 1-element Series) ===
+    # === Scalars from columns (always via scalar_at) ===
     price      = scalar_at(df5, 'Close',      i)
     rsi5       = scalar_at(df5, 'RSI',        i)
     ema9       = scalar_at(df5, 'EMA9',       i)
