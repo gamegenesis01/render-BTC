@@ -116,19 +116,20 @@ def make_signal(df5: pd.DataFrame, df1h: pd.DataFrame):
     r5p = df5.iloc[-2] if len(df5) > 1 else r5
     r1h = df1h.iloc[-1]
 
-    # Scalars only
-    price = float(r5["Close"])
-    rsi5  = float(r5["RSI"])
-    ema9  = float(r5["EMA9"])
-    ema21 = float(r5["EMA21"])
-    vwap  = float(r5["VWAP"])
-    atr   = float(r5["ATR"])
-    swing_high = float(r5["SwingHigh"])
-    swing_low  = float(r5["SwingLow"])
+   # === Scalars (always use column .iloc[...] to avoid 1-element Series) ===
+price      = float(df5['Close'].iloc[-1])
+rsi5       = float(df5['RSI'].iloc[-1])
+ema9       = float(df5['EMA9'].iloc[-1])
+ema21      = float(df5['EMA21'].iloc[-1])
+vwap       = float(df5['VWAP'].iloc[-1])
+atr        = float(df5['ATR'].iloc[-1])
+swing_high = float(df5['SwingHigh'].iloc[-1])
+swing_low  = float(df5['SwingLow'].iloc[-1])
 
-    ema_fast_1h = float(r1h["EMA_FAST"])
-    ema_slow_1h = float(r1h["EMA_SLOW"])
-    rsi1h = float(r1h["RSI"])
+ema_fast_1h = float(df1h['EMA_FAST'].iloc[-1])
+ema_slow_1h = float(df1h['EMA_SLOW'].iloc[-1])
+rsi1h       = float(df1h['RSI'].iloc[-1])
+
 
     # Context flags
     hourly_bull = ema_fast_1h > ema_slow_1h
@@ -137,9 +138,10 @@ def make_signal(df5: pd.DataFrame, df1h: pd.DataFrame):
     bullish_5 = ema9 > ema21
     bearish_5 = ema9 < ema21
 
-    prev_close = float(r5p["Close"])
-    tick_up   = price > prev_close
-    tick_down = price < prev_close
+# === Prev close for confirmation ===
+prev_close = float(df5['Close'].iloc[-2])
+tick_up    = price > prev_close
+tick_down  = price < prev_close
 
     # VWAP proximity
     vwap_ok_buy  = (price >= vwap - VWAP_TOL * atr)
