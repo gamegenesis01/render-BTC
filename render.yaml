@@ -1,14 +1,14 @@
 services:
   - type: cron
-    name: btc-rsi-email-bot
+    name: btc-5min-scanner
     env: python
-    schedule: "0 * * * *"
     buildCommand: ""
-    startCommand: "python main.py"
-    envVars:
-      - key: EMAIL_ADDRESS
-        sync: false
-      - key: APP_PASSWORD
-        sync: false
-      - key: RECIPIENT_EMAIL
-        sync: false
+    startCommand: python scanner_5min.py
+    schedule: "*/5 * * * *"   # Every 5 minutes UTC
+
+  - type: cron
+    name: btc-hourly-summary
+    env: python
+    buildCommand: ""
+    startCommand: python summary_1hr.py
+    schedule: "0 * * * *"     # Every hour UTC
