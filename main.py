@@ -1,4 +1,6 @@
 import os
+import time
+import random
 import smtplib
 import numpy as np
 import pandas as pd
@@ -85,7 +87,7 @@ def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
     if mapping:
         df = df.rename(columns=mapping)
 
-    # If no Close but we have AdjClose, use that as Close
+    # If no Close but we have AdjClose, use AdjClose as Close
     if "Close" not in df.columns and "AdjClose" in df.columns:
         df["Close"] = df["AdjClose"]
 
@@ -96,13 +98,27 @@ def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
-def fetch(interval: str, period: str) -> pd.DataFrame:
-    # Explicit auto_adjust to quiet warning
-    df = yf.download(SYMBOL, interval=interval, period=period, auto_adjust=False)
-    df = _flatten_columns(df)
-    df.dropna(how="any", inplace=True)
-    df = _normalize_ohlcv(df)
-    return df
+def fetch(interval: str, period: str, retries: int = 3, base_delay: float = 2.0) -> pd.DataFrame:
+    """
+    Download OHLCV with simple retry/backoff. Returns a normalized DataFrame or empty DF on failure.
+    """
+    last_err = None
+    for attempt in range(1, retries + 1):
+        try:
+            df = yf.download(SYMBOL, interval=interval, period=period, auto_adjust=False)
+            df = _flatten_columns(df)
+            if df.empty:
+                raise RuntimeError("yfinance returned empty DataFrame")
+            df.dropna(how="any", inplace=True)
+            df = _normalize_ohlcv(df)
+            return df
+        except Exception as e:
+            last_err = e
+            delay = base_delay * (2 ** (attempt - 1)) + random.uniform(0, 0.5)
+            print(f"⚠️ Fetch failed ({interval}, try {attempt}/{retries}): {e}. Retrying in {delay:.1f}s...")
+            time.sleep(delay)
+    print(f"❌ Fetch failed after {retries} retries: {last_err}")
+    return pd.DataFrame()  # caller handles empty
 
 def scalar_at(df: pd.DataFrame, col: str, idx: int = -1) -> float:
     """
@@ -113,6 +129,13 @@ def scalar_at(df: pd.DataFrame, col: str, idx: int = -1) -> float:
         raise KeyError(f"Column '{col}' not found in DataFrame.")
     if isinstance(s, pd.DataFrame):
         s = s.iloc[:, 0]
+    if s is None or len(s) == 0:
+        raise IndexError(f"Column '{col}' is empty; cannot read idx {idx}.")
+    # normalize negative index
+    if idx < 0:
+        idx = len(s) + idx
+    if idx < 0 or idx >= len(s):
+        raise IndexError(f"Index {idx} out of bounds for column '{col}' of length {len(s)}.")
     v = s.iloc[idx]
     try:
         return float(getattr(v, "item", lambda: v)())
@@ -152,7 +175,7 @@ def add_vwap(df: pd.DataFrame) -> pd.DataFrame:
     df["VWAP"] = cum_pv / cum_v
     return df
 
-def indicators_5m(df5: pd.DataFrame) -> pd.DataFrame:
+def indicators_5m(df5: pd.DataFrame) -> pdDataFrame:
     df5["RSI"] = compute_rsi(df5["Close"], RSI_LEN_5)
     df5["EMA9"]  = df5["Close"].ewm(span=EMA_FAST_5, adjust=False).mean()
     df5["EMA21"] = df5["Close"].ewm(span=EMA_SLOW_5, adjust=False).mean()
@@ -290,21 +313,30 @@ def run():
     now = utc_now()
     print(f"🔄 Scan @ {ts_str(now)}")
 
-    # Fetch data
-    df5  = fetch("5m",  "60d")   # up to 60d of 5m bars
-    df1h = fetch("60m", "730d")  # long history for context
+    df5  = fetch("5m",  "60d")
+    df1h = fetch("60m", "730d")
 
-    # Indicators
+    # If either fetch failed, skip safely
+    if df5.empty or df1h.empty:
+        msg = "Data fetch failed (empty df) — skipping this run."
+        print(f"🛑 {msg}")
+        # Optional heartbeat on failure:
+        # send_email("BTC Bot: data fetch failed", f"{msg}\nTime: {ts_str(now)}")
+        return
+
     df5  = indicators_5m(df5)
     df1h = indicators_1h(df1h)
 
-    # Signal
+    # Guard after indicators (in case rolling/ewm wiped all rows)
+    if df5.dropna().empty or df1h.dropna().empty:
+        print("🛑 Indicators produced empty data — skipping this run.")
+        return
+
     (signal, reason, price, target, stop,
      rsi5, ema9, ema21, vwap, atr5, hourly_bull, hourly_bear, rsi1h) = make_signal(df5, df1h)
 
     trend = "📈 Bullish" if hourly_bull else "📉 Bearish" if hourly_bear else "➖ Flat"
 
-    # Immediate alert on BUY/SELL
     if signal in ["BUY", "SELL"]:
         subject = f"BTC 5m Alert: {signal}"
         body = f"""
