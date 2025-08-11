@@ -60,11 +60,48 @@ def _flatten_columns(df: pd.DataFrame) -> pd.DataFrame:
         df.columns = ["_".join([str(x) for x in tup if str(x) != ""]) for tup in df.columns]
     return df
 
+def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Rename any yfinance variants to canonical: Open/High/Low/Close/Volume/AdjClose.
+    Handles names like 'Close_BTC-USD' or 'BTC-USD_Close'.
+    """
+    def find_like(name: str):
+        name_l = name.lower()
+        for c in df.columns:
+            s = str(c).lower()
+            if s == name_l:
+                return c
+            if s.endswith("_" + name_l) or s.startswith(name_l + "_"):
+                return c
+        return None
+
+    mapping = {}
+    for pretty, raw in [("Open", "open"), ("High", "high"), ("Low", "low"),
+                        ("Close", "close"), ("AdjClose", "adj close"), ("Volume", "volume")]:
+        col = find_like(raw)
+        if col is not None:
+            mapping[col] = pretty
+
+    if mapping:
+        df = df.rename(columns=mapping)
+
+    # If no Close but we have AdjClose, use that as Close
+    if "Close" not in df.columns and "AdjClose" in df.columns:
+        df["Close"] = df["AdjClose"]
+
+    needed = {"Open", "High", "Low", "Close", "Volume"}
+    missing = [c for c in needed if c not in df.columns]
+    if missing:
+        raise KeyError(f"Missing expected columns after normalization: {missing}. Got: {list(df.columns)}")
+
+    return df
+
 def fetch(interval: str, period: str) -> pd.DataFrame:
     # Explicit auto_adjust to quiet warning
     df = yf.download(SYMBOL, interval=interval, period=period, auto_adjust=False)
     df = _flatten_columns(df)
     df.dropna(how="any", inplace=True)
+    df = _normalize_ohlcv(df)
     return df
 
 def scalar_at(df: pd.DataFrame, col: str, idx: int = -1) -> float:
