@@ -175,7 +175,7 @@ def add_vwap(df: pd.DataFrame) -> pd.DataFrame:
     df["VWAP"] = cum_pv / cum_v
     return df
 
-def indicators_5m(df5: pd.DataFrame) -> pdDataFrame:
+def indicators_5m(df5: pd.DataFrame) -> pd.DataFrame:
     df5["RSI"] = compute_rsi(df5["Close"], RSI_LEN_5)
     df5["EMA9"]  = df5["Close"].ewm(span=EMA_FAST_5, adjust=False).mean()
     df5["EMA21"] = df5["Close"].ewm(span=EMA_SLOW_5, adjust=False).mean()
